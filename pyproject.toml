@@ -1,0 +1,11 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/W: estilo, F: erros óbvios, I: ordem dos imports, UP: sintaxe moderna, B: armadilhas comuns
+select = ["E", "W", "F", "I", "UP", "B"]
