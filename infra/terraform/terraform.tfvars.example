@@ -1,0 +1,4 @@
+# Copie para terraform.tfvars (que o .gitignore ignora) e ajuste.
+bucket_name = "meu-nome-mini-conta-digital-dev"
+environment = "dev"
+aws_region  = "sa-east-1"
