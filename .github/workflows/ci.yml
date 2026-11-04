@@ -1,0 +1,37 @@
+name: CI
+
+# Quando roda: a cada push em qualquer branch e a cada pull request.
+on:
+  push:
+  pull_request:
+
+# Permissão mínima: o workflow só precisa LER o código do repositório.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest  # máquina virtual Linux limpa, criada para esta execução
+
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v7
+
+      - name: Instalar Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip  # guarda os pacotes baixados entre execuções
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Instalar dependências
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint (ruff check)
+        run: ruff check .
+
+      - name: Formatação (ruff format --check)
+        run: ruff format --check .
+
+      - name: Testes (pytest)
+        run: pytest -q
