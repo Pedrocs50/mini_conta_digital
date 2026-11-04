@@ -2,6 +2,24 @@
 
 API REST de **conta digital** feita em Python/FastAPI: criar conta, consultar saldo, depositar, transferir entre contas e consultar extrato.
 
+## Visão geral
+
+| | |
+|---|---|
+| **O que é** | API REST de conta digital: criar conta, consultar saldo, depositar, transferir e ver extrato |
+| **Para que serve** | Estudo: praticar API, testes, Docker, CI e infraestrutura como código |
+| **Destaques** | Valores em centavos (inteiros), transferência atômica, idempotência, 41 testes |
+| **O que não é** | Um sistema bancário real (sem autenticação, sem banco de dados, sem Pix) |
+
+```mermaid
+flowchart LR
+    C["Cliente (curl / Swagger)"] --> A["api/ - rotas HTTP"]
+    A --> S["services/ - regras de negócio"]
+    S --> R["repositories/ - interface de armazenamento"]
+    R --> M["Memória (hoje)"]
+    R -.-> B["SQLite / Postgres (futuro)"]
+```
+
 ## Por que este projeto existe
 
 É um **projeto de estudo**, feito em poucas horas para praticar, de ponta a ponta, as peças que cercam uma API:
@@ -124,6 +142,32 @@ curl -s -w '\nHTTP %{http_code}\n' -X POST $BASE/accounts/$ANA/deposits \
   -H 'Content-Type: application/json' -d '{"amount_cents": 10.5}'
 ```
 
+## Como funciona uma transferência
+
+Tudo acontece dentro de **um único bloco atômico** (`repository.atomic()`):
+
+1. Recusa na hora se origem e destino forem a mesma conta.
+2. Se veio `Idempotency-Key` e ela já foi usada com o mesmo pedido, devolve o resultado guardado e **não move dinheiro**.
+3. Busca as duas contas (404 se alguma não existir).
+4. Confere o saldo da origem (409 se for insuficiente).
+5. Debita a origem, credita o destino, registra as duas linhas do extrato e guarda a chave de idempotência.
+6. Se **qualquer** passo falhar, o estado volta ao que era antes (rollback).
+
+## O que os testes cobrem
+
+41 testes com pytest, em três grupos:
+
+- **API (HTTP):** criar conta, depositar, transferir com sucesso, saldo insuficiente, conta inexistente
+  (origem e destino), valor inválido (zero, negativo, fracionado, texto, booleano), mesma conta, UUID
+  malformado, extrato e idempotência.
+- **Atomicidade:** um repositório de teste "quebra" no meio da transferência e o teste confere que saldos,
+  extratos e chave de idempotência voltaram ao estado anterior.
+- **Concorrência:** 40 transferências simultâneas sobre um saldo que comporta 10; exatamente 10 passam e o
+  dinheiro total se conserva.
+
+Também verifiquei que os testes de atomicidade e concorrência **falham** quando removo o rollback e o lock
+(mutação feita à mão, fora do repositório), para ter certeza de que não passam por acaso.
+
 ## Decisões técnicas
 
 **Dinheiro em centavos, como inteiro.** Números de ponto flutuante não representam decimais com exatidão
@@ -196,19 +240,43 @@ Próximos passos naturais:
 4. Paginação do extrato e expiração das chaves de idempotência.
 5. Backend remoto e módulos no Terraform; `HEALTHCHECK` no Docker.
 
+## Como foi construído
+
+Desenvolvi o projeto em etapas, com **um commit por etapa** (veja o histórico): API e testes, Docker, CI,
+Terraform e README. Usei o **Claude Code** (assistente de programação com IA) como apoio e para me explicar
+cada decisão; os commits trazem a marca de coautoria. O objetivo era aprender, então a prioridade foi
+entender e conseguir explicar cada peça, e não acumular funcionalidades.
+
+## Problemas que encontrei e como resolvi
+
+- **Lint falhando por linhas longas.** Eu havia encadeado `ruff check && ruff format`, então o `format`, que
+  corrige isso sozinho, nunca rodava. Solução: rodar o `format` primeiro e quebrar à mão uma string longa.
+- **Testes passando de primeira.** Em vez de confiar, quebrei o código de propósito (sem rollback, sem lock)
+  para ver os testes falharem. Falharam, então testam o que dizem testar.
+- **Docker "não conecta".** O cliente estava instalado, mas o serviço (daemon) estava desligado. Precisei
+  ligá-lo com `systemctl`.
+- **`terraform plan` sem conta AWS.** Falha com `No valid credential sources found`. Fiz o plano offline
+  numa cópia fora do repositório, com credenciais falsas e `skip_*`, e deixei isso explícito aqui.
+- **Status do CI enganoso.** A CLI do GitHub mostrou `queued` para uma execução que já tinha terminado.
+  O log é que mostrou o resultado real: status é um dado, o log é a prova.
+
 ## O que aprendi
 
 <!-- RASCUNHO: ajuste com as suas palavras antes de usar. -->
 
-- Que separar a API em camadas (rotas, serviço, repositório) facilita testar as regras de negócio sem
-  precisar de HTTP e deixa a troca de armazenamento mais simples.
-- Que, em um sistema financeiro, detalhes como usar inteiros em centavos, garantir atomicidade na
-  transferência e tratar requisições repetidas (idempotência) importam mais do que adicionar funcionalidades.
-- Que escrever o teste não basta: vale quebrar o código de propósito para ver se o teste realmente falha.
-- Em Docker, a diferença entre imagem e container, e como a ordem das instruções do Dockerfile afeta o cache
-  de build.
-- O que é integração contínua e como descrevê-la em um workflow do GitHub Actions.
-- O básico de infraestrutura como código: descrever recursos em arquivos, usar `validate` e `plan` para
-  conferir antes de qualquer mudança, e nunca versionar estado ou segredos.
-- Que sou iniciante em Docker, CI e Terraform: este projeto foi um primeiro contato prático, não experiência
-  de produção.
+- **Camadas.** Separar rotas, regras de negócio e armazenamento permite testar as regras sem HTTP e trocar
+  a memória por um banco escrevendo outra classe, sem mexer no resto.
+- **Dinheiro e consistência.** Em sistemas financeiros, usar inteiros em centavos, garantir que a
+  transferência seja atômica e tratar requisições repetidas (idempotência) pesa mais do que ter muitas
+  funcionalidades.
+- **Testes de verdade.** Escrever o teste não basta; vale quebrar o código de propósito para ver se o teste
+  falha. Também vi como simular uma falha no meio de uma operação.
+- **Docker.** A diferença entre imagem e container, e entre container e máquina virtual (o container
+  compartilha o kernel do host). Aprendi que a ordem das instruções do Dockerfile decide o aproveitamento
+  do cache, e por que rodar como usuário sem privilégios.
+- **CI.** Integração contínua é uma máquina limpa que, a cada push, instala, testa e avisa se algo quebrou,
+  o que revela o "na minha máquina funciona". Descrevi isso em um workflow do GitHub Actions.
+- **Infraestrutura como código.** Descrever recursos em arquivos versionados, usar `validate` e `plan` para
+  conferir antes de qualquer mudança, e não versionar estado nem segredos.
+- **Honestidade sobre o escopo.** Este é um primeiro contato prático com Docker, CI e Terraform, e **não**
+  experiência de produção. Prefiro dizer o que falta a exagerar o que fiz.
