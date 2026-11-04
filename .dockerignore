@@ -1,0 +1,26 @@
+# O que NÃO vai para dentro da imagem (e nem para o "contexto de build" enviado ao Docker).
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# Testes, infra e docs não são necessários para rodar a API
+tests
+infra
+.github
+README.md
+requirements-dev.txt
+pyproject.toml
+
+# Nunca embutir segredos/estado na imagem
+.env
+*.tfstate
+*.tfvars
+
+Dockerfile
+docker-compose.yml
+.dockerignore

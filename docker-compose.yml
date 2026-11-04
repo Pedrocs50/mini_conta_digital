@@ -1,0 +1,6 @@
+services:
+  api:
+    build: .
+    image: mini-conta-digital:dev
+    ports:
+      - "8000:8000"
